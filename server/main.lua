@@ -10,6 +10,7 @@ local SCRIPT_CHANNEL <const> = '^script:([^:]+)$' -- script:<resource>:warning i
 local MAX_RESOURCE_LENGTH <const> = 64
 local DISCORD_LIMIT <const> = 1900
 local FENCE_OVERHEAD <const> = 10
+local UNSAFE_CHARS <const> = '[%c\127]'
 
 ---@class TelemetryConfig
 ---@field cooldown integer ms
@@ -66,6 +67,15 @@ local function isThrottled(seen, key)
     return false
 end
 
+local function keepWhitespace(char)
+    return (char == '\n' or char == '\t') and char or ''
+end
+
+local function sanitize(text, maxLength, keepNewlines)
+    text = text:sub(1, maxLength):gsub('%^%d', '')
+    return (text:gsub(UNSAFE_CHARS, keepNewlines and keepWhitespace or ''))
+end
+
 ---@param entry TelemetryError
 local function sendWebhook(entry)
     local url <const> = GetConvar(WEBHOOK_CONVAR, '')
@@ -99,7 +109,7 @@ RegisterNetEvent(CLIENT_EVENT, function(payload)
     if type(payload) ~= 'table' then return end
     if type(payload.resource) ~= 'string' or type(payload.trace) ~= 'string' then return end
 
-    local resource <const> = payload.resource:sub(1, MAX_RESOURCE_LENGTH)
+    local resource <const> = sanitize(payload.resource, MAX_RESOURCE_LENGTH, false)
     if GetResourceState(resource) == 'missing' or config.ignoreResources[resource] then return end
 
     local seen = clientSeen[src]
@@ -109,7 +119,7 @@ RegisterNetEvent(CLIENT_EVENT, function(payload)
     end
     if isThrottled(seen, resource) then return end
 
-    local trace <const> = payload.trace:sub(1, config.maxTraceLength):gsub('%^%d', '')
+    local trace <const> = sanitize(payload.trace, config.maxTraceLength, true)
 
     if config.logClientErrors then
         Citizen.Trace(('^1%s %s (%d) in %s^7\n%s\n'):format(CLIENT_TAG, GetPlayerName(src) or 'unknown', src, resource, trace))
